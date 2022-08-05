@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<style>
+    html,body { margin: 0; overflow: hidden; }
+    #gui { position : absolute; top : 0; left : 0; }
+</style>
+
+<script id="draw-shader-fs" type="x-shader/x-fragment">
+    precision mediump float;
+
+    uniform float     u_time;
+    uniform vec2      u_resolution;
+    uniform float     u_angle;
+    uniform sampler2D u_texture;
+
+    void main()
+    {
+        vec2 uv = gl_FragCoord.xy / u_resolution;
+        vec2 ndcPos = uv * 2.0 - 1.0;
+
+        float aspect = u_resolution.x / u_resolution.y;
+        
+        float eye_angle = abs(u_angle);
+        float half_angle = eye_angle/2.0;
+        float half_dist = tan(half_angle);
+
+        vec2  vp_scale = vec2(aspect, 1.0);
+        vec2  P = ndcPos * vp_scale; 
+        
+        float vp_dia   = length(vp_scale);
+        float rel_dist = length(P) / vp_dia;  
+        vec2  rel_P = normalize(P) / normalize(vp_scale);
+
+        vec2 pos_prj = ndcPos;
+        if (u_angle > 0.0)
+        {
+            float beta = rel_dist * half_angle;
+            pos_prj = rel_P * tan(beta) / half_dist;  
+        }
+        else if (u_angle < 0.0)
+        {
+            float beta = atan(rel_dist * half_dist);
+            pos_prj = rel_P * beta / half_angle;
+        }
+
+        vec2 uv_prj = pos_prj * 0.5 + 0.5;
+        vec2 rangeCheck = step(vec2(0.0), uv_prj) * step(uv_prj, vec2(1.0));   
+        if (rangeCheck.x * rangeCheck.y < 0.5)
+            discard;
+
+        vec4 texColor = texture2D(u_texture, uv_prj.st);
+        gl_FragColor = vec4( texColor.rgb, 1.0 );
+    }
+</script>
+
+<script id="draw-shader-vs" type="x-shader/x-vertex">
+    precision mediump float;
+
+    attribute vec2 inPos;
+
+    void main()
+    {
+        gl_Position = vec4( inPos.xy, 0.0, 1.0 );
+    }
+</script>
+
+<canvas id="ogl-canvas" style="border: none"></canvas>
+<form id="gui" name="inputs">
+<input type="range" id="scale" min="0" max="100" value="20"/>
+</form>
+
+<script>
+    (function loadscene() {    
+
+        var canvas, gl, vp_size, texture, prog, bufObj = {};
+        
+        function initScene() {
+        
+            canvas = document.getElementById( "ogl-canvas");
+            gl = canvas.getContext( "experimental-webgl" );
+            if ( !gl )
+              return;
+        
+            imageUrl = "https://drive.google.com/file/d/1VjTdHkIMxkEnvKjeno6ufKLOilzi-LCz/view?usp=sharing"
+            // imageUrl = "https://raw.githubusercontent.com/Rabbid76/graphics-snippets/master/resource/texture/supermario.jpg"
+            texture = new Texture(imageUrl); 
+            texture.bound = false;
+        
+            progDraw = gl.createProgram();
+            for (let i = 0; i < 2; ++i) {
+                let source = document.getElementById(i==0 ? "draw-shader-vs" : "draw-shader-fs").text;
+                let shaderObj = gl.createShader(i==0 ? gl.VERTEX_SHADER : gl.FRAGMENT_SHADER);
+                gl.shaderSource(shaderObj, source);
+                gl.compileShader(shaderObj);
+                let status = gl.getShaderParameter(shaderObj, gl.COMPILE_STATUS);
+                if (!status) alert(gl.getShaderInfoLog(shaderObj));
+                gl.attachShader(progDraw, shaderObj);
+                gl.linkProgram(progDraw);
+            }
+            status = gl.getProgramParameter(progDraw, gl.LINK_STATUS);
+            if ( !status ) alert(gl.getProgramInfoLog(progDraw));
+            progDraw.inPos = gl.getAttribLocation(progDraw, "inPos");
+            progDraw.u_time = gl.getUniformLocation(progDraw, "u_time");
+            progDraw.u_resolution = gl.getUniformLocation(progDraw, "u_resolution");
+            progDraw.u_texture = gl.getUniformLocation(progDraw, "u_texture");
+            progDraw.u_angle = gl.getUniformLocation(progDraw, "u_angle");
+            gl.useProgram(progDraw);
+        
+            var pos = [ -1, -1, 1, -1, 1, 1, -1, 1 ];
+            var inx = [ 0, 1, 2, 0, 2, 3 ];
+            bufObj.pos = gl.createBuffer();
+            gl.bindBuffer( gl.ARRAY_BUFFER, bufObj.pos );
+            gl.bufferData( gl.ARRAY_BUFFER, new Float32Array( pos ), gl.STATIC_DRAW );
+            bufObj.inx = gl.createBuffer();
+            bufObj.inx.len = inx.length;
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, bufObj.inx );
+            gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( inx ), gl.STATIC_DRAW );
+            gl.enableVertexAttribArray( progDraw.inPos );
+            gl.vertexAttribPointer( progDraw.inPos, 2, gl.FLOAT, false, 0, 0 ); 
+            
+            gl.enable( gl.DEPTH_TEST );
+            gl.clearColor( 0.0, 0.0, 0.0, 1.0 );
+        
+            window.onresize = resize;
+            resize();
+            requestAnimationFrame(render);
+        }
+        
+        function resize() {
+            vp_size = [window.innerWidth, window.innerHeight];
+            canvas.width = vp_size[0];
+            canvas.height = vp_size[1];
+        }
+        
+        function render(deltaMS) {
+        
+            scale = document.getElementById( "scale" ).value / 100 * 2.0 - 1.0;
+        
+            gl.viewport( 0, 0, canvas.width, canvas.height );
+            gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT );
+           
+            texture.bound = texture.bound || texture.bind( 0 );
+            gl.uniform1i(progDraw.u_texture, 0);
+            gl.uniform1f(progDraw.u_time, deltaMS/2000.0);
+            gl.uniform2f(progDraw.u_resolution, canvas.width, canvas.height);
+            gl.uniform1f(progDraw.u_angle, scale * Math.PI * 0.9);
+            gl.drawElements( gl.TRIANGLES, bufObj.inx.len, gl.UNSIGNED_SHORT, 0 );
+            
+            requestAnimationFrame(render);
+        }  
+        
+        class Texture {
+            constructor( name, dflt ) {
+                let texture = this;
+                this.dflt = dflt || [128,128,128,255]
+                let image = { "cx": this.dflt.w || 1, "cy": this.dflt.h || 1, "plane": this.dflt.p || this.dflt };
+                this.size = [image.cx, image.cy];
+                this.dummyObj = Texture.createTexture2D( image, true )
+                this.image = new Image(64,64);
+                this.image.setAttribute('crossorigin', 'anonymous');
+                this.image.onload = function () {
+                    let cx = 1 << 31 - Math.clz32(texture.image.naturalWidth);
+                    if ( cx < texture.image.naturalWidth ) cx *= 2;
+                    let cy = 1 << 31 - Math.clz32(texture.image.naturalHeight);
+                    if ( cy < texture.image.naturalHeight ) cy *= 2;
+                    var canvas = document.createElement( 'canvas' );
+                    canvas.width  = cx;
+                    canvas.height = cy;
+                    var context = canvas.getContext( '2d' );
+                    context.drawImage( texture.image, 0, 0, canvas.width, canvas.height );
+                    texture.textureObj = Texture.createTexture2D( canvas, true );
+                    texture.size = [cx, cy];
+                }
+                this.image.src = name;
+            }
+            static createTexture2D( image, flipY ) {
+                let t = gl.createTexture();
+                gl.activeTexture( gl.TEXTURE0 );
+                gl.bindTexture( gl.TEXTURE_2D, t );
+                gl.pixelStorei( gl.UNPACK_FLIP_Y_WEBGL, flipY != undefined && flipY == true );
+                if ( image.cx && image.cy && image.plane )
+                    gl.texImage2D( gl.TEXTURE_2D, 0, gl.RGBA, image.cx, image.cy, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(image.plane) );
+                else
+                    gl.texImage2D( gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image );
+                gl.texParameteri( gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR );
+                gl.texParameteri( gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR );
+                gl.texParameteri( gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT );
+                gl.texParameteri( gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT );
+                gl.bindTexture( gl.TEXTURE_2D, null );
+                return t;
+            }
+            bind( texUnit = 0 ) {
+                gl.activeTexture( gl.TEXTURE0 + texUnit );
+                if ( this.textureObj ) { 
+                    gl.bindTexture( gl.TEXTURE_2D, this.textureObj );
+                    return true;
+                }
+                gl.bindTexture( gl.TEXTURE_2D, this.dummyObj );
+                return false;
+            }
+        };
+        
+        initScene();
+        
+        })();
+</script>
+
+</html> 
