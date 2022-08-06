@@ -70,7 +70,7 @@
 
 <canvas id="ogl-canvas" style="border: none"></canvas>
 <form id="gui" name="inputs">
-<input type="range" id="scale" min="0" max="100" value="20"/>
+<input type="range" id="scale" min="0" max="100" value="50"/>
 </form>
 
 <script>
@@ -85,7 +85,7 @@
             if ( !gl )
               return;
         
-            imageUrl = "https://raw.githubusercontent.com/lycheetw/tmp/master/test_1024.png"
+            imageUrl = "https://raw.githubusercontent.com/lycheetw/tmp/develope/test_1024.png"
             // imageUrl = "https://raw.githubusercontent.com/Rabbid76/graphics-snippets/master/resource/texture/supermario.jpg"
             texture = new Texture(imageUrl); 
             texture.bound = false;
